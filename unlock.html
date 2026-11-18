@@ -1,7 +1,16 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0a0d12">
+<meta name="theme-color" content="#0a0d12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#e8ecf2" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="48x48" href="icons/favicon-48.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Unlock">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>Unlock</title>
 <style>
 :root{--bg:#0a0d12;--s1:#11161e;--s2:#171d28;--line:rgba(255,255,255,.08);--fg:#eef2f8;--mut:#8a97ab;--acc:#6d9bff;--ok:#38e0b0;--bad:#ff6b78;--dur:10s;
@@ -10,6 +19,7 @@
 @media(prefers-color-scheme:light){:root{--bg:#e8ecf2;--s1:#fff;--s2:#f2f5f9;--line:rgba(15,23,42,.1);--fg:#0f1722;--mut:#5b6a80;--acc:#2f63e6;--ok:#0c9a72;--bad:#d63546;
  --sh:0 1px 1px #0f172a0d,0 4px 8px #0f172a0d,0 18px 36px -10px #0f172a26,inset 0 1px 0 #fff;color-scheme:light}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html{overscroll-behavior:none}
 body{margin:0;min-height:100dvh;display:grid;place-items:center;color:var(--fg);padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
  font:16px/1.45 ui-rounded,system-ui,-apple-system,"Segoe UI",sans-serif;
  background:radial-gradient(70% 50% at 50% 0%,color-mix(in srgb,var(--acc) 15%,transparent),transparent 70%),var(--bg)}
@@ -18,6 +28,7 @@ main{width:min(360px,100%);display:grid;gap:22px;justify-items:center;padding:24
 .pill i{width:8px;height:8px;border-radius:50%;background:var(--bad);transition:.3s}
 body[data-s=locked] .pill i,body[data-s=unlocked] .pill i{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 22%,transparent)}
 body[data-s=wait] .pill i{background:var(--mut);animation:pulse 1.2s infinite}
+body[data-link=down] .pill i{background:var(--mut);box-shadow:none;animation:pulse 1.2s infinite}
 .dial{position:relative;width:min(280px,76vw);aspect-ratio:1;display:grid;place-items:center}
 .ring{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
 .ring circle{fill:none;stroke-width:5;stroke-linecap:round}
@@ -30,6 +41,7 @@ body[data-s=unlocked] .p{opacity:1;animation:drain var(--dur) linear forwards}
 .big:disabled{cursor:not-allowed;opacity:.55}
 .big:focus-visible{outline:2px solid var(--acc);outline-offset:4px}
 body[data-s=unlocked] .big{opacity:1;color:var(--ok);box-shadow:var(--sh),0 0 70px -12px color-mix(in srgb,var(--ok) 60%,transparent)}
+body[data-link=down] .big{opacity:.55}
 .lock{width:60px;height:60px;fill:none;stroke:currentColor;stroke-width:3.4;stroke-linecap:round;stroke-linejoin:round}
 .lock .sh{transition:transform .5s var(--spring);transform-origin:32px 28px}
 body[data-s=unlocked] .lock .sh{transform:translateY(-7px) rotate(-18deg)}
@@ -52,9 +64,14 @@ body[data-s=unlocked] .lock .sh{transform:translateY(-7px) rotate(-18deg)}
 </main>
 <script>
 const $=id=>document.getElementById(id);
-const CDNS=['https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js','https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js'];
-let C=null;try{C=JSON.parse(localStorage.getItem('lockcfg'))}catch(e){}
-let m=null,T={},up=false,st='unknown',busy=false,t0=0,pend=null,msgT,stT,watchT;
+const STALE=30000;   // link counts as asleep after this much silence (ms)
+const DEFAULTS={host:'afaa6363.ala.asia-southeast1.emqxsl.com',port:8084,prefix:'lock/rohit-7f3k29xq'};   // same defaults as index.html
+const CDNS=['mqtt.min.js','https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js','https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js'];
+const fill=c=>c&&{host:c.host||DEFAULTS.host,port:c.port||DEFAULTS.port,prefix:c.prefix||DEFAULTS.prefix,user:c.user,pass:c.pass};
+const okCfg=c=>!!(c&&c.host&&c.user&&c.pass&&c.prefix);
+let C=null;try{C=fill(JSON.parse(localStorage.getItem('lockcfg')))}catch(e){}
+let m=null,T={},up=false,everUp=false,st='unknown',busy=false,fatal=false,libFail=false,want=false,t0=0,dur=10,lastRx=0,lastWake=0,hiddenAt=Date.now(),
+    pend=null,msgT,stT,watchT;
 
 function say(t,k=''){const e=$('msg');e.textContent=t;e.className=k;clearTimeout(msgT);if(t&&k)msgT=setTimeout(()=>{e.textContent='';e.className=''},6000)}
 function buzz(p){try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}}
@@ -63,23 +80,38 @@ function armWatch(sec){clearTimeout(watchT);watchT=setTimeout(()=>{if(st==='unlo
 function restartRing(){const p=document.querySelector('.ring .p');p.style.animation='none';void p.getBoundingClientRect();p.style.animation=''}
 
 function render(){
-  const online=up&&(st==='locked'||st==='unlocked');
-  document.body.dataset.s=!up||st==='unknown'?'wait':st==='offline'?'offline':st;
-  $('conn').textContent=!navigator.onLine?'No internet':!up?'Connecting':st==='offline'?'Lock offline':st==='unknown'?'Checking lock':'Connected';
-  $('big').disabled=!up||busy;                      // only disabled while connecting or waiting for the lock
-  $('bigT').textContent=!up?'Connecting':busy?'Unlocking...':st==='unlocked'?'Unlocked':st==='offline'?'Lock offline - retry':'Unlock';
+  const cfg=okCfg(C);
+  document.body.dataset.s=st==='unknown'?'wait':st;      // last known lock state stays on screen while the link reconnects
+  document.body.dataset.link=(up||!cfg)?'up':'down';
+  $('conn').textContent=!navigator.onLine?'No internet':!cfg?'Not set up':fatal?'Login rejected':!up?(everUp?'Reconnecting':'Connecting'):st==='offline'?'Lock offline':st==='unknown'?'Checking lock':'Connected';
+  $('big').disabled=cfg&&!fatal&&!libFail&&(!up||busy);   // only disabled while connecting or waiting for the lock
+  $('bigT').textContent=!cfg?'Set up first':fatal?'Check settings':libFail?'Retry':!up?(everUp?'Reconnecting':'Connecting'):busy?'Unlocking...':st==='unlocked'?'Unlocked':st==='offline'?'Lock offline - retry':'Unlock';
 }
+function sendOpen(){
+  m.publish(T.cmd,JSON.stringify({a:'open'}),{qos:0},err=>{if(err){clearPend();busy=false;want=false;say('Could not send. Try again.','err');render()}})}
 function unlock(){
   if(busy)return;
-  if(!m||!m.connected)return say('Not connected. Reconnecting...','err');
+  if(!okCfg(C)||fatal){location.href='index.html';return}
+  if(libFail){location.reload();return}
   t0=performance.now();busy=true;say('');
-  m.publish(T.cmd,JSON.stringify({a:'open'}),{qos:0},err=>{if(err){clearPend();busy=false;say('Could not send. Try again.','err');render()}});
-  pend=setTimeout(()=>{pend=null;busy=false;say('No response. Make sure the lock has the latest firmware.','err');render()},5000);
+  const fresh=m&&m.connected&&Date.now()-lastRx<STALE;
+  if(fresh)sendOpen();else{want=true;wake(true)}       // link may have slept in the background: reconnect, then send
+  pend=setTimeout(()=>{pend=null;busy=false;want=false;say('No response. Check the lock is online and has the latest firmware.','err');wake(true);render()},fresh?5000:8000);
   render();
 }
 $('big').onclick=unlock;
-addEventListener('online',()=>{if(m&&!m.connected)m.reconnect();render()});addEventListener('offline',render);
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&m&&!m.connected)m.reconnect()});
+
+/* keep the link alive across app switches */
+function wake(force){
+  if(!m)return;const n=Date.now();
+  if(n-lastWake<1500)return;
+  if(m.connected&&!force&&n-lastRx<STALE)return;
+  lastWake=n;m.end(true,()=>m.reconnect())}   // force-close a half-dead socket, then open a fresh one
+addEventListener('online',()=>{wake(true);render()});addEventListener('offline',render);
+document.addEventListener('visibilitychange',()=>{if(document.hidden)hiddenAt=Date.now();else wake(Date.now()-hiddenAt>4000)});
+addEventListener('pageshow',e=>{if(e.persisted)wake(true)});
+addEventListener('focus',()=>wake(false));
+if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 
 function loadMqtt(){return new Promise((res,rej)=>{let i=0;(function n(){if(window.mqtt)return res();if(i>=CDNS.length)return rej();
   const s=document.createElement('script');s.src=CDNS[i++];s.onload=n;s.onerror=n;document.head.appendChild(s)})()})}
@@ -87,27 +119,30 @@ function noStatus(){if(st==='unknown'){st='offline';say('No response from the lo
 
 function start(){
   T={cmd:C.prefix+'/cmd',evt:C.prefix+'/evt',st:C.prefix+'/status'};
-  m=mqtt.connect('wss://'+C.host+':'+(C.port||8084)+'/mqtt',{username:C.user,password:C.pass,keepalive:15,reconnectPeriod:1500,connectTimeout:8000,clientId:'unlock-'+Math.random().toString(16).slice(2,8)});
-  m.on('connect',()=>{up=true;m.subscribe([T.evt,T.st]);clearTimeout(stT);stT=setTimeout(noStatus,4000);render()});
-  m.on('close',()=>{up=false;st='unknown';clearPend();busy=false;render()});
+  m=mqtt.connect('wss://'+C.host+':'+(C.port||8084)+'/mqtt',{username:C.user,password:C.pass,keepalive:15,reconnectPeriod:1500,connectTimeout:8000,queueQoSZero:false,clientId:'unlock-'+Math.random().toString(16).slice(2,8)});   // queueQoSZero off: a stale command is never replayed later
+  m.on('packetreceive',()=>{lastRx=Date.now()});
+  m.on('connect',()=>{up=everUp=true;lastRx=Date.now();m.subscribe([T.evt,T.st]);clearTimeout(stT);stT=setTimeout(noStatus,4000);
+    if(want){want=false;sendOpen()}render()});
+  m.on('close',()=>{up=false;if(!want){clearPend();busy=false}render()});   // keep a waiting unlock alive through the reconnect
   m.on('error',err=>{const t=String(err&&err.message||'');
-    if(/refused|not authorized|bad user|credentials/i.test(t)){m.end(true);say('Login rejected. Check settings in the full app.','err')}else say('Connection problem. Retrying...','err')});
+    if(/refused|not authorized|bad user|credentials/i.test(t)){fatal=true;clearPend();busy=false;want=false;m.end(true);say('Login rejected. Check settings in the full app.','err');render()}else say('Connection problem. Retrying...','err')});
   m.on('message',(t,p)=>{
+    lastRx=Date.now();
     const s=p.toString();
-    if(t===T.st){clearTimeout(stT);st=s==='unlocked'||s==='locked'?s:'offline';if(st==='offline')say('The lock is offline. Check its power and WiFi.','err');if(st==='unlocked')armWatch(10);else clearTimeout(watchT);render();return}
+    if(t===T.st){clearTimeout(stT);st=s==='unlocked'||s==='locked'?s:'offline';if(st==='offline')say('The lock is offline. Check its power and WiFi.','err');if(st==='unlocked')armWatch(dur);else clearTimeout(watchT);render();return}
     let e;try{e=JSON.parse(s)}catch(x){return}
-    clearPend();busy=false;
+    if(e.e==='locked'){st='locked';clearTimeout(watchT);if(!busy)say('');render();return}   // does not settle a pending unlock
+    clearPend();busy=false;want=false;
     if(e.e==='unlocked'){
-      st='unlocked';armWatch(e.s||10);restartRing();
-      if(e.s>0)document.documentElement.style.setProperty('--dur',e.s+'s');
+      if(e.s>0){dur=e.s;document.documentElement.style.setProperty('--dur',e.s+'s')}
+      st='unlocked';armWatch(dur);restartRing();
       const ms=t0?Math.round(performance.now()-t0):0;t0=0;
       say(ms?'Unlocked in '+ms+' ms':'Unlocked','good');buzz([30,40,30])}
-    else if(e.e==='locked'){st='locked';clearTimeout(watchT);say('')}
     else if(e.e==='disabled')say('One-tap unlock is turned off in the firmware.','err');
     else say('Unexpected reply from the lock.','err');
     render()})}
 
 render();
-if(!C||!C.host||!C.user||!C.pass||!C.prefix){st='offline';render();$('bigT').textContent='Set up first';say('Open "Full app and settings" and enter your broker details once.','err')}
-else loadMqtt().then(start).catch(()=>say('Could not load the connection library. Check your internet.','err'));
+if(!okCfg(C)){st='offline';render();say('Open "Full app and settings" and enter your username and password once.','err')}
+else loadMqtt().then(start).catch(()=>{libFail=true;say('Could not load the connection library. Check your internet.','err');render()})
 </script></body></html>

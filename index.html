@@ -1,7 +1,17 @@
 <!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#0a0d12">
+<meta name="theme-color" content="#0a0d12" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#e8ecf2" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="description" content="Unlock the front door with a Telegram code.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="48x48" href="icons/favicon-48.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Front door">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <title>Front door</title>
 <style>
 :root{
@@ -13,7 +23,7 @@
 @media(prefers-color-scheme:light){:root{--bg:#e8ecf2;--s1:#fff;--s2:#f2f5f9;--line:rgba(15,23,42,.08);--fg:#0f1722;--mut:#5b6a80;
   --acc:#2f63e6;--ok:#0c9a72;--bad:#d63546;--sh:0 1px 1px #0f172a0d,0 4px 8px #0f172a0d,0 18px 36px -10px #0f172a26,inset 0 1px 0 #fff;color-scheme:light}}
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
-html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;overscroll-behavior:none}   /* no pull-to-refresh: it wiped the OTP screen */
 body{margin:0;min-height:100dvh;display:grid;place-items:center;color:var(--fg);padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
   font:16px/1.45 ui-rounded,"SF Pro Rounded",system-ui,-apple-system,"Segoe UI",sans-serif;font-feature-settings:"tnum";
   background:radial-gradient(70% 50% at 15% 0%,color-mix(in srgb,var(--acc) 16%,transparent),transparent 70%),
@@ -28,6 +38,7 @@ h1{margin:0;font-size:1.2rem;font-weight:650;letter-spacing:-.02em}
 .pill i{width:8px;height:8px;border-radius:50%;background:var(--bad);transition:background var(--t2),box-shadow var(--t2)}
 body[data-s=locked] .pill i,body[data-s=unlocked] .pill i{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 22%,transparent)}
 body[data-s=wait] .pill i{background:var(--mut);animation:pulse 1.2s infinite}
+body[data-link=down] .pill i{background:var(--mut);box-shadow:none;animation:pulse 1.2s infinite}
 .bar{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:12px 14px;border-radius:14px;font-size:.85rem;
   background:color-mix(in srgb,var(--bad) 12%,var(--s1));box-shadow:var(--sh);border:1px solid color-mix(in srgb,var(--bad) 35%,transparent)}
 .bar[hidden]{display:none}.bar button{padding:7px 12px;font-size:.8rem;border-radius:10px;flex:none}
@@ -41,7 +52,7 @@ body[data-s=wait] .ring .track{animation:pulse 1.6s infinite}
 .core{width:78%;aspect-ratio:1;border-radius:50%;display:grid;place-items:center;align-content:center;gap:6px;
   background:linear-gradient(160deg,var(--s2),var(--s1));box-shadow:var(--sh);transition:box-shadow var(--t3) var(--ease),opacity var(--t3),transform var(--t3) var(--spring)}
 body[data-s=unlocked] .core{transform:scale(1.03);box-shadow:var(--sh),0 0 70px -12px color-mix(in srgb,var(--ok) 60%,transparent)}
-body[data-s=offline] .core,body[data-s=wait] .core{opacity:.6}
+body[data-s=offline] .core,body[data-s=wait] .core,body[data-link=down] .core{opacity:.6}
 .lock{width:54px;height:54px;fill:none;stroke:var(--fg);stroke-width:3.4;stroke-linecap:round;stroke-linejoin:round;transition:stroke var(--t3)}
 .lock .sh{transition:transform var(--t3) var(--spring);transform-origin:32px 28px}
 body[data-s=unlocked] .lock{stroke:var(--ok)}
@@ -83,6 +94,7 @@ dialog label{display:grid;gap:5px;font-size:.78rem;color:var(--mut);margin-botto
 dialog input{font:inherit;padding:12px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--fg);transition:border-color var(--t2)}
 dialog input:focus{outline:0;border-color:var(--acc)}
 .row{display:flex;gap:8px;margin-top:6px}.row button{flex:1}
+dialog details{margin:0 0 12px;font-size:.78rem;color:var(--mut)}dialog summary{cursor:pointer;padding:4px 0}dialog details label{margin-top:10px}
 .err-t{color:var(--bad);font-size:.78rem;min-height:1.2em;margin:0 0 6px}
 @keyframes rise{from{opacity:0;transform:translateY(12px)}}
 @keyframes drain{to{stroke-dashoffset:0}}
@@ -110,53 +122,70 @@ dialog input:focus{outline:0;border-color:var(--acc)}
 </div>
 <ul class="log" id="log" style="--i:3" aria-label="Recent activity"></ul>
 <button class="gear" id="cfg" style="--i:4">Connection settings</button>
+<button class="gear" id="inst" style="--i:4" hidden>Install app</button>
 </main>
 <div id="toast" role="status" aria-live="polite"></div>
 
-<dialog id="dlg"><h2>Connection settings</h2>
-  <label>Broker host<input id="f_host" placeholder="xxxxxxxx.ala.region.emqxsl.com" autocapitalize="off" autocomplete="off"></label>
-  <label>WebSocket (wss) port<input id="f_port" inputmode="numeric" placeholder="8084" autocomplete="off"></label>
-  <label>Username<input id="f_user" autocapitalize="off" autocomplete="off"></label>
-  <label>Password<input id="f_pass" type="password" autocomplete="off"></label>
-  <label>Topic prefix<input id="f_prefix" placeholder="lock/yourSecret" autocapitalize="off" autocomplete="off"></label>
+<dialog id="dlg"><form id="cfgform" novalidate><h2>Connection settings</h2>
+  <label>Username<input id="f_user" autocapitalize="off" autocomplete="username" spellcheck="false"></label>
+  <label>Password<input id="f_pass" type="password" autocomplete="current-password"></label>
+  <details id="adv"><summary>Advanced</summary>
+    <label>Broker host<input id="f_host" placeholder="xxxxxxxx.ala.region.emqxsl.com" autocapitalize="off" autocomplete="off"></label>
+    <label>WebSocket (wss) port<input id="f_port" inputmode="numeric" placeholder="8084" autocomplete="off"></label>
+    <label>Topic prefix<input id="f_prefix" placeholder="lock/yourSecret" autocapitalize="off" autocomplete="off"></label>
+  </details>
   <p class="err-t" id="f_err"></p>
-  <div class="row"><button class="ghost" id="reset" title="Remove saved details">Reset</button><button class="ghost" id="cancel">Cancel</button><button id="save">Save</button></div>
-</dialog>
+  <div class="row"><button type="button" class="ghost" id="reset" title="Remove saved details">Reset</button><button type="button" class="ghost" id="cancel">Cancel</button><button type="submit" id="save">Save</button></div>
+</form></dialog>
 
 <script>
 const $=id=>document.getElementById(id);
 const UNLOCK_SECONDS=5,COOLDOWN=15,SEND_TIMEOUT=14000,VERIFY_TIMEOUT=5000;   // match firmware
-const CDNS=['https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js','https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js'];
+const CODE_TTL=300000,STALE=30000;   // how long a requested code is remembered; link counts as asleep after this much silence (ms)
+const DEFAULTS={host:'afaa6363.ala.asia-southeast1.emqxsl.com',port:8084,prefix:'lock/rohit-7f3k29xq'};   // only username and password are asked
+const CDNS=['mqtt.min.js','https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js','https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js'];
+const SK='lockstate';
 document.documentElement.style.setProperty('--dur',UNLOCK_SECONDS+'s');
 
-let C=null;try{C=JSON.parse(localStorage.getItem('lockcfg'))}catch(e){}
-let m=null,T={},brokerUp=false,st='unknown',codeStep=false,sending=false,verifying=false,t0=0,coolUntil=0,pend=null,toastT,stT,connT;
+const fill=c=>c&&{host:c.host||DEFAULTS.host,port:c.port||DEFAULTS.port,prefix:c.prefix||DEFAULTS.prefix,user:c.user,pass:c.pass};
+let C=null;try{C=fill(JSON.parse(localStorage.getItem('lockcfg')))}catch(e){}
+let m=null,T={},brokerUp=false,everUp=false,st='unknown',codeStep=false,codeAt=0,sending=false,verifying=false,t0=0,coolUntil=0,
+    wantSubmit=0,unlockSec=UNLOCK_SECONDS,lastRx=0,lastWake=0,hiddenAt=Date.now(),errT=0,pend=null,toastT,stT,connT,watchT;
 
 /* ---------- helpers ---------- */
-function toast(t,k=''){const e=$('toast');e.textContent=t;e.className='show '+k;clearTimeout(toastT);if(t)toastT=setTimeout(()=>e.className='',k==='err'?6000:3500)}
+function toast(t,k=''){const e=$('toast');clearTimeout(toastT);if(!t){e.className='';return}e.textContent=t;e.className='show '+k;toastT=setTimeout(()=>e.className='',k==='err'?6000:3500)}
 function buzz(p){try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}}
 function bar(t,label,fn){const b=$('bar');if(!t){b.hidden=true;return}$('barT').textContent=t;$('barB').textContent=label||'Retry';$('barB').onclick=fn||(()=>location.reload());b.hidden=false}
 function log(t){const li=document.createElement('li'),tm=document.createElement('time');
   tm.textContent=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
   li.append(tm,document.createTextNode(t));const l=$('log');l.prepend(li);while(l.children.length>4)l.lastChild.remove()}
-function setPend(ms,msg){clearPend();pend=setTimeout(()=>{pend=null;sending=verifying=false;toast(msg,'err');render()},ms)}
+function setPend(ms,msg){clearPend();pend=setTimeout(()=>{pend=null;sending=verifying=false;toast(msg,'err');wake(true);render()},ms)}
 function clearPend(){clearTimeout(pend);pend=null}
+function armWatch(){clearTimeout(watchT);watchT=setTimeout(()=>{if(st==='unlocked'){st='locked';render()}},(unlockSec+4)*1000)}   // self-heal if the 'locked' message is missed
+function restartRing(){const p=document.querySelector('.ring .prog');p.style.animation='none';void p.getBoundingClientRect();p.style.animation=''}
 const validHost=h=>/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/i.test(h||'');
 const validCfg=c=>!!(c&&validHost(c.host)&&c.user&&c.pass&&c.prefix&&!/\s/.test(c.prefix)&&!/^\/|\/$/.test(c.prefix));
 
+/* ---------- survive leaving the page (Telegram, app switch, browser discard) ---------- */
+function saveState(){try{localStorage.setItem(SK,JSON.stringify({code:codeStep,at:codeAt,cool:coolUntil}))}catch(e){}}
+function loadState(){try{const s=JSON.parse(localStorage.getItem(SK))||{};
+  if(s.cool>Date.now())coolUntil=s.cool;
+  if(s.code&&Date.now()-s.at<CODE_TTL){codeStep=true;codeAt=s.at}}catch(e){}}
+function setCode(v){if(codeStep===v)return;codeStep=v;if(v)codeAt=Date.now();saveState()}
+
 /* ---------- rendering ---------- */
 function render(){
-  let s;
-  if(!brokerUp||st==='unknown')s='wait';else s=st==='offline'?'offline':st;
-  document.body.dataset.s=s;
-  const online=brokerUp&&(st==='locked'||st==='unlocked');
-  $('conn').textContent=!navigator.onLine?'No internet':!brokerUp?'Connecting':st==='offline'?'Lock offline':st==='unknown'?'Checking lock':'Connected';
+  const s=st==='unknown'?'wait':st;                       // last known lock state stays on screen while the link reconnects
+  document.body.dataset.s=s;document.body.dataset.link=brokerUp?'up':'down';
+  const known=st==='locked'||st==='unlocked';
+  $('conn').textContent=!navigator.onLine?'No internet':!brokerUp?(everUp?'Reconnecting':'Connecting'):st==='offline'?'Lock offline':st==='unknown'?'Checking lock':'Connected';
   $('lbl').textContent={wait:'Connecting',offline:'Offline',locked:'Locked',unlocked:'Unlocked'}[s];
-  if(s!=='unlocked')$('sub').textContent=s==='locked'?'Ready':'';
-  $('p1').hidden=!(online&&st==='locked'&&!codeStep);
-  $('p2').hidden=!(online&&st==='locked'&&codeStep);
-  $('p3').hidden=!(online&&st==='unlocked');
-  $('req').disabled=sending;$('req').textContent=sending?'Sending...':'Send code to Telegram';
+  if(s!=='unlocked')$('sub').textContent=s==='locked'?(brokerUp?'Ready':'Reconnecting'):'';
+  $('p1').hidden=!(known&&st==='locked'&&!codeStep);
+  $('p2').hidden=!(known&&st==='locked'&&codeStep);
+  $('p3').hidden=!(known&&st==='unlocked');
+  $('req').disabled=sending||!brokerUp;$('req').textContent=sending?'Sending...':'Send code to Telegram';
+  $('lock').disabled=!brokerUp;
   paint();
 }
 function paint(){
@@ -165,7 +194,7 @@ function paint(){
   $('go').disabled=v.length!==6||verifying;
 }
 setInterval(()=>{const l=Math.ceil((coolUntil-Date.now())/1000);
-  $('resend').disabled=l>0||sending;$('resend').textContent=l>0?'Resend in '+l+'s':'Resend code'},400);
+  $('resend').disabled=l>0||sending||!brokerUp;$('resend').textContent=l>0?'Resend in '+l+'s':'Resend code'},400);
 
 /* ---------- commands ---------- */
 function send(o){
@@ -175,34 +204,53 @@ function send(o){
 function requestCode(){
   if(sending||st!=='locked')return;
   if(!send({a:'req'}))return;
-  sending=true;coolUntil=Date.now()+COOLDOWN*1000;setPend(SEND_TIMEOUT,'The lock did not answer. Check it is online.');render()}
+  sending=true;coolUntil=Date.now()+COOLDOWN*1000;saveState();setPend(SEND_TIMEOUT,'The lock did not answer. Check it is online.');render()}
 function submit(){
   const v=$('otp').value;if(v.length!==6||st!=='locked'||verifying)return;
-  t0=performance.now();if(!send({a:'otp',v}))return;
+  if(!brokerUp){wantSubmit=Date.now();toast('Reconnecting. Your code will be sent automatically.');return}   // link was asleep after switching apps
+  wantSubmit=0;t0=performance.now();if(!send({a:'otp',v}))return;
   verifying=true;setPend(VERIFY_TIMEOUT,'No response from the lock. Try again.');paint()}
+
+/* ---------- keep the link alive across app switches ---------- */
+function wake(force){
+  if(!m)return;const n=Date.now();
+  if(n-lastWake<1500)return;
+  if(m.connected&&!force&&n-lastRx<STALE)return;
+  lastWake=n;m.end(true,()=>m.reconnect())}   // force-close a half-dead socket, then open a fresh one
 
 /* ---------- ui events ---------- */
 $('req').onclick=requestCode;$('resend').onclick=requestCode;$('go').onclick=submit;
 $('lock').onclick=()=>{if(send({a:'lock'}))buzz(20)};
 $('otp').addEventListener('input',e=>{e.target.value=e.target.value.replace(/\D/g,'').slice(0,6);paint();if(e.target.value.length===6)submit()});
 $('otp').addEventListener('focus',paint);$('otp').addEventListener('blur',paint);
-$('cfg').onclick=()=>{['host','port','user','pass','prefix'].forEach(k=>$('f_'+k).value=C?.[k]||(k==='port'?'8084':''));$('f_err').textContent='';$('dlg').showModal()};
+$('cfg').onclick=()=>{const v={...DEFAULTS,...(C||{})};['host','port','user','pass','prefix'].forEach(k=>$('f_'+k).value=v[k]??'');$('f_err').textContent='';$('dlg').showModal()};
 $('cancel').onclick=()=>$('dlg').close();
-$('reset').onclick=()=>{try{localStorage.removeItem('lockcfg')}catch(e){}location.reload()};
-$('save').onclick=()=>{
-  const n={host:$('f_host').value.trim().replace(/^\w+:\/\//,'').replace(/[:\/].*$/,''),port:parseInt($('f_port').value,10)||8084,user:$('f_user').value.trim(),
-           pass:$('f_pass').value,prefix:$('f_prefix').value.trim().replace(/^\/+|\/+$/g,'')};
-  if(!validHost(n.host))return $('f_err').textContent='Enter the broker host, like abc123.ala.region.emqxsl.com';
-  if(n.port<1||n.port>65535)return $('f_err').textContent='Port must be 1-65535 (EMQX uses 8084).';
+$('reset').onclick=()=>{try{localStorage.removeItem('lockcfg');localStorage.removeItem(SK)}catch(e){}location.reload()};
+$('cfgform').onsubmit=e=>{
+  e.preventDefault();
+  const adv=msg=>{$('adv').open=true;$('f_err').textContent=msg};
+  const n={host:$('f_host').value.trim().replace(/^\w+:\/\//,'').replace(/[:\/].*$/,'')||DEFAULTS.host,port:parseInt($('f_port').value,10)||DEFAULTS.port,user:$('f_user').value.trim(),
+           pass:$('f_pass').value,prefix:$('f_prefix').value.trim().replace(/^\/+|\/+$/g,'')||DEFAULTS.prefix};
   if(!n.user||!n.pass)return $('f_err').textContent='Username and password are required.';
-  if(!n.prefix||/\s/.test(n.prefix))return $('f_err').textContent='Topic prefix is required and cannot contain spaces.';
-  try{localStorage.setItem('lockcfg',JSON.stringify(n))}catch(e){return $('f_err').textContent='Browser storage is blocked. Allow site data and retry.'}
+  if(!validHost(n.host))return adv('Enter the broker host, like abc123.ala.region.emqxsl.com');
+  if(n.port<1||n.port>65535)return adv('Port must be 1-65535 (EMQX uses 8084).');
+  if(/\s/.test(n.prefix))return adv('Topic prefix cannot contain spaces.');
+  try{localStorage.setItem('lockcfg',JSON.stringify(n))}catch(x){return $('f_err').textContent='Browser storage is blocked. Allow site data and retry.'}
   location.reload()};
-addEventListener('online',()=>{toast('Back online','good');if(m&&!m.connected)m.reconnect();render()});
+addEventListener('online',()=>{toast('Back online','good');wake(true);render()});
 addEventListener('offline',()=>{toast('No internet connection','err');render()});
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&m&&!m.connected)m.reconnect()});
+document.addEventListener('visibilitychange',()=>{if(document.hidden)hiddenAt=Date.now();else wake(Date.now()-hiddenAt>4000)});
+addEventListener('pageshow',e=>{if(e.persisted)wake(true)});
+addEventListener('focus',()=>wake(false));
 addEventListener('error',()=>toast('Something went wrong. Reload the page.','err'));
 addEventListener('unhandledrejection',()=>toast('Something went wrong. Reload the page.','err'));
+
+/* ---------- install (PWA) ---------- */
+let dip=null;
+addEventListener('beforeinstallprompt',e=>{e.preventDefault();dip=e;$('inst').hidden=false});
+$('inst').onclick=async()=>{if(!dip)return;dip.prompt();try{await dip.userChoice}catch(e){}dip=null;$('inst').hidden=true};
+addEventListener('appinstalled',()=>{$('inst').hidden=true});
+if('serviceWorker' in navigator&&/^https?:$/.test(location.protocol))addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{}));
 
 /* ---------- broker ---------- */
 function loadMqtt(){return new Promise((res,rej)=>{let i=0;(function next(){
@@ -211,44 +259,52 @@ function loadMqtt(){return new Promise((res,rej)=>{let i=0;(function next(){
 
 function onStatus(s){
   const was=st;st=s==='unlocked'||s==='locked'?s:'offline';clearTimeout(stT);
+  if(st!=='locked'){sending=verifying=false;clearPend()}
+  if(st==='unlocked')armWatch();else clearTimeout(watchT);
+  if(codeStep&&st!=='locked')setCode(false);
   if(st==='offline'){bar('The lock is offline. Check its power and WiFi.','Check again',()=>{bar('');st='unknown';render();stT=setTimeout(noStatus,4000)});if(was!=='offline'&&was!=='unknown')log('Lock went offline')}
-  else{bar('');if(was==='offline'||was==='unknown')log('Lock online');codeStep=codeStep&&st==='locked'}
+  else{bar('');if(was==='offline'||was==='unknown')log('Lock online')}
   render()}
 function noStatus(){if(st==='unknown'){st='offline';bar('No response from the lock. Check its power and WiFi.','Reload');render()}}
 
 function start(){
   T={cmd:C.prefix+'/cmd',evt:C.prefix+'/evt',st:C.prefix+'/status'};
   m=mqtt.connect('wss://'+C.host+':'+(C.port||8084)+'/mqtt',{username:C.user,password:C.pass,keepalive:15,reconnectPeriod:1500,
-    connectTimeout:8000,clientId:'web-'+Math.random().toString(16).slice(2,8)});
+    connectTimeout:8000,queueQoSZero:false,clientId:'web-'+Math.random().toString(16).slice(2,8)});   // queueQoSZero off: a stale command is never replayed later
   connT=setTimeout(()=>{if(!brokerUp)bar("Can't reach the broker. Check your internet, host name and port.",'Settings',()=>$('cfg').click())},10000);
-  m.on('connect',()=>{brokerUp=true;clearTimeout(connT);bar('');
+  m.on('packetreceive',()=>{lastRx=Date.now()});
+  m.on('connect',()=>{brokerUp=everUp=true;lastRx=Date.now();clearTimeout(connT);bar('');
     m.subscribe([T.evt,T.st],{qos:0},err=>{if(err)toast('Could not subscribe to the lock','err')});
-    clearTimeout(stT);stT=setTimeout(noStatus,4000);render()});
-  m.on('close',()=>{brokerUp=false;st='unknown';clearPend();sending=verifying=false;render()});
+    clearTimeout(stT);stT=setTimeout(noStatus,4000);render();
+    if(wantSubmit&&Date.now()-wantSubmit<8000)submit();wantSubmit=0});
+  m.on('close',()=>{brokerUp=false;clearPend();sending=verifying=false;render()});   // last known lock state stays visible while reconnecting
   m.on('error',err=>{
     const msg=String(err&&err.message||'');
     if(/refused|not authorized|bad user|credentials/i.test(msg)){m.end(true);clearTimeout(connT);
       bar('Login rejected by the broker. Check username and password.','Settings',()=>$('cfg').click());render()}
-    else toast('Connection problem. Retrying...','err')});
+    else if(Date.now()-errT>15000){errT=Date.now();toast('Connection problem. Retrying...','err')}});
   m.on('message',(t,p)=>{
+    lastRx=Date.now();
     const s=p.toString();
     if(t===T.st)return onStatus(s);
     let e;try{e=JSON.parse(s)}catch(x){return}
-    clearPend();
     const M={tg_fail:'Telegram failed. Try again.',low_mem:'Lock is low on memory. Try again.',no_otp:'Request a code first.',
       expired:'Code expired. Request a new one.',locked_out:'Too many tries. Wait 60 seconds.',wait:'Please wait a few seconds.',bad_req:'Invalid request.'};
+    if(e.e==='locked'){clearTimeout(watchT);if(st==='unlocked')st='locked';log('Locked');render();return}   // does not settle a pending request
     if(e.e==='sending')return setPend(SEND_TIMEOUT,'Telegram is taking too long. Try again.');
-    if(e.e==='otp_sent'){sending=false;codeStep=true;toast('Code sent. Check Telegram.','good');log('Code sent');render();$('otp').focus();return}
+    clearPend();
+    if(e.e==='otp_sent'){sending=false;setCode(true);toast('Code sent. Check Telegram.','good');log('Code sent');render();$('otp').focus();return}
     if(e.e==='unlocked'){verifying=false;const ms=t0?Math.round(performance.now()-t0):0;t0=0;
-      $('otp').value='';codeStep=false;$('sub').textContent=ms?'Opened in '+ms+' ms':'';log('Unlocked'+(ms?' in '+ms+' ms':''));buzz([30,40,30]);render();return}
-    if(e.e==='locked'){log('Locked');return}
+      if(e.s>0){unlockSec=e.s;document.documentElement.style.setProperty('--dur',e.s+'s')}
+      st='unlocked';armWatch();restartRing();
+      $('otp').value='';setCode(false);$('sub').textContent=ms?'Opened in '+ms+' ms':'';log('Unlocked'+(ms?' in '+ms+' ms':''));buzz([30,40,30]);render();return}
     sending=verifying=false;
     if(e.e==='bad'){const b=$('otpbox');b.classList.remove('shake');void b.offsetWidth;b.classList.add('shake');
       $('otp').value='';toast('Wrong code. '+e.left+(e.left===1?' try':' tries')+' left.','err');log('Wrong code');buzz(120)}
-    else{toast(M[e.e]||'Unexpected reply from the lock.','err');if(e.e==='expired'||e.e==='locked_out'){codeStep=false;$('otp').value=''}}
+    else{toast(M[e.e]||'Unexpected reply from the lock.','err');if(e.e==='expired'||e.e==='locked_out'){setCode(false);$('otp').value=''}}
     render()})}
 
-render();
-if(!validCfg(C)){st='offline';render();toast('Add your broker details to get started.');setTimeout(()=>$('cfg').click(),300)}
+loadState();render();
+if(!validCfg(C)){st='offline';render();toast('Enter your username and password to get started.');setTimeout(()=>$('cfg').click(),300)}
 else loadMqtt().then(start).catch(()=>{bar('Could not load the connection library. Check your internet.','Retry')})
 </script></body></html>
