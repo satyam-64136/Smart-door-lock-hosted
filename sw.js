@@ -1,7 +1,7 @@
 /* Service worker: offline app shell. Never touches MQTT (WebSocket traffic bypasses fetch). */
-const VER = 'door-v1';
+const VER = 'door-v2';
 const SHELL = ['./', 'index.html', 'unlock.html', 'manifest.webmanifest', 'mqtt.min.js',
-  'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-48.png'];
+  'icon-192.png', 'icon-512.png', 'apple-touch-icon.png', 'favicon-48.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(VER).then(c => Promise.all(SHELL.map(u => c.add(u).catch(() => {})))).then(() => self.skipWaiting()));
@@ -21,7 +21,7 @@ self.addEventListener('fetch', e => {
     e.respondWith((async () => {
       const c = await caches.open(VER);
       try {
-        const res = await Promise.race([fetch(r), new Promise((_, rej) => setTimeout(rej, 4000))]);
+        const res = await Promise.race([fetch(new Request(r.url, { cache: 'no-cache', credentials: 'same-origin' })), new Promise((_, rej) => setTimeout(rej, 4000))]);
         if (res && res.ok) c.put(u.pathname.endsWith('/') ? './' : r, res.clone());
         return res;
       } catch (_) {

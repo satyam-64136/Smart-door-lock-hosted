@@ -32,7 +32,7 @@ PubSubClient mqtt(net);
 char     otp[7] = "";
 bool     otpActive = false, pendingReq = false, relayOn = false;
 uint8_t  tries = 0;
-uint32_t otpAt = 0, lastReq = 0, lockoutAt = 0, relayAt = 0, tgDelAt = 0, lastMqttTry = 0;
+uint32_t otpAt = 0, lastReq = 0, lockoutAt = 0, relayAt = 0, tgDelAt = 0, lastMqttTry = 0, lastCmdAt = 0;
 bool     lockedOut = false;
 long     tgMsgId = 0;
 
@@ -184,6 +184,7 @@ void checkOtp(const char* v) {
 }
 
 void onMsg(char* topic, byte* p, unsigned int len) {
+  lastCmdAt = millis();                           // lets the loop avoid blocking calls while someone is using the lock
   if (len > 80) return;                           // ignore oversized/garbage payloads
   StaticJsonDocument<96> d;
   if (deserializeJson(d, p, len)) return;
@@ -288,17 +289,19 @@ void heartbeat() {                                // re-announce state so a miss
 
 void loop() {
   static uint32_t wifiDownAt = 0;
+  if (relayOn && millis() - relayAt >= unlockMs) doLock();   // checked first: nothing below may delay the re-lock
   if (WiFi.status() == WL_CONNECTED) {
     wifiDownAt = 0;
-    if (!mqtt.connected()) mqttConnect(); else { mqtt.loop(); flushPending(); heartbeat(); }
+    if (!mqtt.connected()) { if (!relayOn) mqttConnect(); }  // a blocking (up to ~10 s) reconnect never runs while the door is open
+    else { mqtt.loop(); flushPending(); heartbeat(); }
   } else {
     if (!wifiDownAt) wifiDownAt = millis();
     if (millis() - wifiDownAt > 60000) ESP.restart();   // WiFi stuck for 1 min: reboot (relay boots LOCKED)
   }
-  if (pendingReq) handleRequest();
-  if (relayOn && millis() - relayAt >= unlockMs) doLock();
+  if (pendingReq && !relayOn) handleRequest();          // blocking HTTPS: never while the door is open
   if (lockedOut && millis() - lockoutAt >= LOCKOUT_MS) { lockedOut = false; tries = 0; }
-  if (tgMsgId && !relayOn && (int32_t)(millis() - tgDelAt) >= 0) {   // never block during unlock
+  if (tgMsgId && !relayOn && !pendingReq && (int32_t)(millis() - tgDelAt) >= 0
+      && millis() - lastCmdAt > 10000 && ESP.getFreeHeap() >= 24000) {   // blocking HTTPS: wait until nobody is mid-command, so a tap is never delayed
     tgPost("deleteMessage", String("{\"chat_id\":\"") + TG_CHAT + "\",\"message_id\":" + tgMsgId + "}");
     tgMsgId = 0;
   }
