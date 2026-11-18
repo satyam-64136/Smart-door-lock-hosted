@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0a0d12">
+<title>Unlock</title>
+<style>
+:root{--bg:#0a0d12;--s1:#11161e;--s2:#171d28;--line:rgba(255,255,255,.08);--fg:#eef2f8;--mut:#8a97ab;--acc:#6d9bff;--ok:#38e0b0;--bad:#ff6b78;
+ --ease:cubic-bezier(.22,1,.36,1);--spring:cubic-bezier(.34,1.56,.64,1);
+ --sh:0 1px 1px #0003,0 4px 8px #0002,0 18px 36px -10px #0006,inset 0 1px 0 #ffffff0d;color-scheme:dark}
+@media(prefers-color-scheme:light){:root{--bg:#e8ecf2;--s1:#fff;--s2:#f2f5f9;--line:rgba(15,23,42,.1);--fg:#0f1722;--mut:#5b6a80;--acc:#2f63e6;--ok:#0c9a72;--bad:#d63546;
+ --sh:0 1px 1px #0f172a0d,0 4px 8px #0f172a0d,0 18px 36px -10px #0f172a26,inset 0 1px 0 #fff;color-scheme:light}}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+body{margin:0;min-height:100dvh;display:grid;place-items:center;color:var(--fg);padding:env(safe-area-inset-top) 16px env(safe-area-inset-bottom);
+ font:16px/1.45 ui-rounded,system-ui,-apple-system,"Segoe UI",sans-serif;
+ background:radial-gradient(70% 50% at 50% 0%,color-mix(in srgb,var(--acc) 15%,transparent),transparent 70%),var(--bg)}
+main{width:min(360px,100%);display:grid;gap:22px;justify-items:center;padding:24px 0;text-align:center}
+.pill{display:flex;align-items:center;gap:8px;padding:7px 13px;border-radius:99px;background:var(--s1);box-shadow:var(--sh);font-size:.78rem;color:var(--mut)}
+.pill i{width:8px;height:8px;border-radius:50%;background:var(--bad);transition:.3s}
+body[data-s=locked] .pill i,body[data-s=unlocked] .pill i{background:var(--ok);box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 22%,transparent)}
+body[data-s=wait] .pill i{background:var(--mut);animation:pulse 1.2s infinite}
+.dial{position:relative;width:min(250px,70vw);aspect-ratio:1;display:grid;place-items:center}
+.ring{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:5;stroke-linecap:round}
+.ring .t{stroke:var(--line)}
+.ring .p{stroke:var(--ok);stroke-dasharray:679;stroke-dashoffset:679;opacity:0}
+body[data-s=unlocked] .p{opacity:1;animation:drain 5s linear forwards}
+.big{width:78%;aspect-ratio:1;border:0;border-radius:50%;display:grid;place-items:center;align-content:center;gap:8px;cursor:pointer;color:var(--fg);font:inherit;font-weight:650;font-size:1.05rem;
+ background:linear-gradient(160deg,var(--s2),var(--s1));box-shadow:var(--sh);transition:transform .2s var(--spring),box-shadow .4s var(--ease),opacity .3s}
+.big:hover:not(:disabled){transform:scale(1.03)}.big:active:not(:disabled){transform:scale(.95)}
+.big:disabled{cursor:not-allowed;opacity:.55}
+.big:focus-visible{outline:2px solid var(--acc);outline-offset:4px}
+body[data-s=unlocked] .big{opacity:1;color:var(--ok);box-shadow:var(--sh),0 0 70px -12px color-mix(in srgb,var(--ok) 60%,transparent)}
+.lock{width:56px;height:56px;fill:none;stroke:currentColor;stroke-width:3.4;stroke-linecap:round;stroke-linejoin:round}
+.lock .sh{transition:transform .5s var(--spring);transform-origin:32px 28px}
+body[data-s=unlocked] .lock .sh{transform:translateY(-7px) rotate(-18deg)}
+.otp{position:relative;display:grid;grid-template-columns:repeat(6,1fr);gap:8px;width:100%;animation:rise .4s var(--ease)}
+.otp[hidden]{display:none}
+.otp b{height:58px;display:grid;place-items:center;border-radius:14px;background:var(--s1);box-shadow:var(--sh);font:600 1.5rem ui-monospace,Menlo,monospace;transition:transform .25s var(--spring),box-shadow .25s}
+.otp b.on{transform:translateY(-3px);box-shadow:var(--sh),0 0 0 2px var(--acc)}
+.otp input{position:absolute;inset:0;width:100%;opacity:0;font-size:16px;z-index:1}
+.otp.shake{animation:shake .4s}
+#msg{min-height:1.4em;font-size:.9rem;color:var(--mut)}#msg.err{color:var(--bad)}#msg.good{color:var(--ok)}
+.links{display:flex;gap:16px;font-size:.8rem}
+.links a,.links button{color:var(--mut);background:none;border:0;font:inherit;cursor:pointer;text-decoration:underline;padding:0}
+.links button:disabled{opacity:.4;cursor:default;text-decoration:none}
+@keyframes drain{to{stroke-dashoffset:0}}@keyframes pulse{50%{opacity:.35}}
+@keyframes rise{from{opacity:0;transform:translateY(10px)}}@keyframes shake{20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}
+@media(prefers-reduced-motion:reduce){*{animation-duration:.01s!important;transition-duration:.01s!important}}
+</style></head>
+<body data-s="wait"><main>
+<div class="pill"><i></i><span id="conn">Connecting</span></div>
+<div class="dial">
+ <svg class="ring" viewBox="0 0 240 240" aria-hidden="true"><circle class="t" cx="120" cy="120" r="108"/><circle class="p" cx="120" cy="120" r="108"/></svg>
+ <button class="big" id="big" disabled>
+  <svg class="lock" viewBox="0 0 64 64" aria-hidden="true"><path class="sh" d="M21 28V20a11 11 0 0 1 22 0v8"/><rect x="15" y="28" width="34" height="25" rx="7"/><circle cx="32" cy="40" r="2.5"/></svg>
+  <span id="bigT">Connecting</span>
+ </button>
+</div>
+<label class="otp" id="box" hidden><input id="otp" inputmode="numeric" pattern="[0-9]*" maxlength="6" autocomplete="one-time-code" aria-label="6-digit code"><b></b><b></b><b></b><b></b><b></b><b></b></label>
+<div id="msg" role="status" aria-live="polite"></div>
+<div class="links"><button id="again" hidden>Send a new code</button><a href="index.html">Full app and settings</a></div>
+</main>
+<script>
+const $=id=>document.getElementById(id);
+const CDNS=['https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js','https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js'];
+let C=null;try{C=JSON.parse(localStorage.getItem('lockcfg'))}catch(e){}
+let m=null,T={},up=false,st='unknown',step='idle',pend=null,msgT,stT,coolUntil=0;
+
+function say(t,k=''){const e=$('msg');e.textContent=t;e.className=k;clearTimeout(msgT);if(t&&k)msgT=setTimeout(()=>{e.textContent='';e.className=''},6000)}
+function buzz(p){try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}}
+function setPend(ms,t){clearPend();pend=setTimeout(()=>{pend=null;step=step==='sending'?'idle':step;say(t,'err');render()},ms)}
+function clearPend(){clearTimeout(pend);pend=null}
+
+function render(){
+  const online=up&&(st==='locked'||st==='unlocked');
+  document.body.dataset.s=!up||st==='unknown'?'wait':st==='offline'?'offline':st;
+  $('conn').textContent=!navigator.onLine?'No internet':!up?'Connecting':st==='offline'?'Lock offline':st==='unknown'?'Checking lock':'Connected';
+  $('big').disabled=!online||step==='sending'||st==='unlocked';
+  $('bigT').textContent=!online?(st==='offline'?'Lock offline':'Connecting'):st==='unlocked'?'Unlocked':step==='sending'?'Sending code...':step==='code'?'Enter the code':'Unlock';
+  $('box').hidden=!(online&&st==='locked'&&step==='code');
+  $('again').hidden=$('box').hidden;
+  paint();
+}
+function paint(){
+  const v=$('otp').value,f=document.activeElement===$('otp');
+  document.querySelectorAll('.otp b').forEach((b,i)=>{b.textContent=v[i]||'';b.classList.toggle('on',f&&i===Math.min(v.length,5))});
+}
+setInterval(()=>{const l=Math.ceil((coolUntil-Date.now())/1000);$('again').disabled=l>0;$('again').textContent=l>0?'Send a new code ('+l+'s)':'Send a new code'},500);
+
+function send(o){
+  if(!m||!m.connected){say('Not connected. Reconnecting...','err');return false}
+  m.publish(T.cmd,JSON.stringify(o),{qos:0},err=>{if(err){clearPend();step=step==='sending'?'idle':step;say('Could not send. Try again.','err');render()}});
+  return true}
+function requestCode(){
+  if(step==='sending'||st!=='locked'||!send({a:'req'}))return;
+  step='sending';coolUntil=Date.now()+15000;say('');setPend(14000,'The lock did not answer. Try again.');render()}
+function submit(){
+  const v=$('otp').value;if(v.length!==6||st!=='locked')return;
+  if(send({a:'otp',v}))setPend(5000,'No response from the lock. Try again.')}
+
+$('big').onclick=()=>{if(step==='idle')requestCode();else if(step==='code')$('otp').focus()};
+$('again').onclick=requestCode;
+$('otp').addEventListener('input',e=>{e.target.value=e.target.value.replace(/\D/g,'').slice(0,6);paint();if(e.target.value.length===6)submit()});
+$('otp').addEventListener('focus',paint);$('otp').addEventListener('blur',paint);
+addEventListener('online',()=>{if(m&&!m.connected)m.reconnect();render()});addEventListener('offline',render);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&m&&!m.connected)m.reconnect()});
+
+function loadMqtt(){return new Promise((res,rej)=>{let i=0;(function n(){if(window.mqtt)return res();if(i>=CDNS.length)return rej();
+  const s=document.createElement('script');s.src=CDNS[i++];s.onload=n;s.onerror=n;document.head.appendChild(s)})()})}
+function noStatus(){if(st==='unknown'){st='offline';say('No response from the lock. Check its power and WiFi.','err');render()}}
+
+function start(){
+  T={cmd:C.prefix+'/cmd',evt:C.prefix+'/evt',st:C.prefix+'/status'};
+  m=mqtt.connect('wss://'+C.host+':'+(C.port||8084)+'/mqtt',{username:C.user,password:C.pass,keepalive:15,reconnectPeriod:1500,connectTimeout:8000,clientId:'unlock-'+Math.random().toString(16).slice(2,8)});
+  m.on('connect',()=>{up=true;m.subscribe([T.evt,T.st]);clearTimeout(stT);stT=setTimeout(noStatus,4000);render()});
+  m.on('close',()=>{up=false;st='unknown';clearPend();if(step==='sending')step='idle';render()});
+  m.on('error',err=>{const t=String(err&&err.message||'');
+    if(/refused|not authorized|bad user|credentials/i.test(t)){m.end(true);say('Login rejected. Check settings in the full app.','err')}else say('Connection problem. Retrying...','err')});
+  m.on('message',(t,p)=>{
+    const s=p.toString();
+    if(t===T.st){clearTimeout(stT);st=s==='unlocked'||s==='locked'?s:'offline';if(st==='offline')say('The lock is offline. Check its power and WiFi.','err');else if(st==='unlocked')step='idle';render();return}
+    let e;try{e=JSON.parse(s)}catch(x){return}
+    clearPend();
+    const M={tg_fail:'Telegram failed. Try again.',low_mem:'Lock is low on memory. Try again.',no_otp:'Send a code first.',expired:'Code expired. Send a new one.',locked_out:'Too many tries. Wait 60 seconds.',wait:'Please wait a few seconds.',bad_req:'Invalid request.'};
+    if(e.e==='sending'){setPend(14000,'Telegram is taking too long. Try again.');return}
+    if(e.e==='otp_sent'){step='code';say('Code sent. Check Telegram.','good');render();$('otp').focus();return}
+    if(e.e==='unlocked'){step='idle';$('otp').value='';say('Door unlocked','good');buzz([30,40,30]);render();return}
+    if(e.e==='locked'){say('');return}
+    if(e.e==='bad'){const b=$('box');b.classList.remove('shake');void b.offsetWidth;b.classList.add('shake');$('otp').value='';say('Wrong code. '+e.left+(e.left===1?' try':' tries')+' left.','err');buzz(120);render();return}
+    if(step==='sending'||e.e==='expired'||e.e==='locked_out'||e.e==='no_otp')step='idle';
+    $('otp').value='';say(M[e.e]||'Unexpected reply from the lock.','err');render()})}
+
+render();
+if(!C||!C.host||!C.user||!C.pass||!C.prefix){st='offline';render();$('bigT').textContent='Set up first';say('Open "Full app and settings" and enter your broker details once.','err')}
+else loadMqtt().then(start).catch(()=>say('Could not load the connection library. Check your internet.','err'));
+</script></body></html>
