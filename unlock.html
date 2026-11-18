@@ -54,21 +54,23 @@ body[data-s=unlocked] .lock .sh{transform:translateY(-7px) rotate(-18deg)}
 const $=id=>document.getElementById(id);
 const CDNS=['https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js','https://unpkg.com/mqtt@5.10.1/dist/mqtt.min.js'];
 let C=null;try{C=JSON.parse(localStorage.getItem('lockcfg'))}catch(e){}
-let m=null,T={},up=false,st='unknown',busy=false,t0=0,pend=null,msgT,stT;
+let m=null,T={},up=false,st='unknown',busy=false,t0=0,pend=null,msgT,stT,watchT;
 
 function say(t,k=''){const e=$('msg');e.textContent=t;e.className=k;clearTimeout(msgT);if(t&&k)msgT=setTimeout(()=>{e.textContent='';e.className=''},6000)}
 function buzz(p){try{navigator.vibrate&&navigator.vibrate(p)}catch(e){}}
 function clearPend(){clearTimeout(pend);pend=null}
+function armWatch(sec){clearTimeout(watchT);watchT=setTimeout(()=>{if(st==='unlocked'){st='locked';render()}},(sec+4)*1000)}   // self-heal if the 'locked' message is missed
+function restartRing(){const p=document.querySelector('.ring .p');p.style.animation='none';void p.getBoundingClientRect();p.style.animation=''}
 
 function render(){
   const online=up&&(st==='locked'||st==='unlocked');
   document.body.dataset.s=!up||st==='unknown'?'wait':st==='offline'?'offline':st;
   $('conn').textContent=!navigator.onLine?'No internet':!up?'Connecting':st==='offline'?'Lock offline':st==='unknown'?'Checking lock':'Connected';
-  $('big').disabled=!online||busy||st==='unlocked';
-  $('bigT').textContent=!online?(st==='offline'?'Lock offline':'Connecting'):st==='unlocked'?'Unlocked':busy?'Unlocking...':'Unlock';
+  $('big').disabled=!up||busy;                      // only disabled while connecting or waiting for the lock
+  $('bigT').textContent=!up?'Connecting':busy?'Unlocking...':st==='unlocked'?'Unlocked':st==='offline'?'Lock offline - retry':'Unlock';
 }
 function unlock(){
-  if(busy||st!=='locked')return;
+  if(busy)return;
   if(!m||!m.connected)return say('Not connected. Reconnecting...','err');
   t0=performance.now();busy=true;say('');
   m.publish(T.cmd,JSON.stringify({a:'open'}),{qos:0},err=>{if(err){clearPend();busy=false;say('Could not send. Try again.','err');render()}});
@@ -92,14 +94,15 @@ function start(){
     if(/refused|not authorized|bad user|credentials/i.test(t)){m.end(true);say('Login rejected. Check settings in the full app.','err')}else say('Connection problem. Retrying...','err')});
   m.on('message',(t,p)=>{
     const s=p.toString();
-    if(t===T.st){clearTimeout(stT);st=s==='unlocked'||s==='locked'?s:'offline';if(st==='offline')say('The lock is offline. Check its power and WiFi.','err');render();return}
+    if(t===T.st){clearTimeout(stT);st=s==='unlocked'||s==='locked'?s:'offline';if(st==='offline')say('The lock is offline. Check its power and WiFi.','err');if(st==='unlocked')armWatch(10);else clearTimeout(watchT);render();return}
     let e;try{e=JSON.parse(s)}catch(x){return}
     clearPend();busy=false;
     if(e.e==='unlocked'){
+      st='unlocked';armWatch(e.s||10);restartRing();
       if(e.s>0)document.documentElement.style.setProperty('--dur',e.s+'s');
       const ms=t0?Math.round(performance.now()-t0):0;t0=0;
       say(ms?'Unlocked in '+ms+' ms':'Unlocked','good');buzz([30,40,30])}
-    else if(e.e==='locked')say('');
+    else if(e.e==='locked'){st='locked';clearTimeout(watchT);say('')}
     else if(e.e==='disabled')say('One-tap unlock is turned off in the firmware.','err');
     else say('Unexpected reply from the lock.','err');
     render()})}

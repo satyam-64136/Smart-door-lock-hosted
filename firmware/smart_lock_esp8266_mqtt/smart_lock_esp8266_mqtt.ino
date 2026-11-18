@@ -1,13 +1,3 @@
-/*
- * Smart Door Lock v2 - ESP8266 (NodeMCU) + MQTT push + Telegram OTP
- * No Google Apps Script, no polling. The ESP keeps ONE live TLS connection
- * to an MQTT broker; the web app publishes commands and the ESP reacts in
- * ~50-150 ms. OTP is generated and checked ON the ESP (never on the web).
- *
- * Libraries (Library Manager): PubSubClient (Nick O'Leary), ArduinoJson v6.21.x,
- *                              LiquidCrystal I2C (Frank de Brabander)  [LCD is optional]
- * Board: NodeMCU 1.0 (ESP-12E)
- */
 #include <ESP8266WiFi.h>
 #include <WiFiClientSecureBearSSL.h>
 #include <ESP8266HTTPClient.h>
@@ -19,8 +9,9 @@
 // ---------- EDIT THESE ----------
 #include "secrets.h"   // copy secrets.example.h -> secrets.h and edit
 
-const int  RELAY_PIN = D5;               // GPIO14 -> relay IN1
-const bool RELAY_ACTIVE_LOW = true;      // most 4-ch modules are active LOW
+const int  RELAY_PIN = D5;               // GPIO14 -> relay module IN (1-channel relay)
+const bool RELAY_ACTIVE_LOW = true;      // true = low-level-trigger module (most 1-ch boards).
+                                         // If the relay is ON while the LCD says LOCKED, set false.
 const uint32_t UNLOCK_MS     = 5000;     // how long solenoid stays energised
 const uint32_t OPEN_MS       = 10000;    // one-tap unlock (unlock.html) holds 10 s
 const bool     ALLOW_ONE_TAP = true;     // set false to require the Telegram code always
@@ -48,6 +39,7 @@ long     tgMsgId = 0;
 void relayWrite(bool on) {
   digitalWrite(RELAY_PIN, (on ^ RELAY_ACTIVE_LOW) ? HIGH : LOW);
   relayOn = on;
+  Serial.printf("[RELAY] %s\n", on ? "ON (unlocked)" : "OFF (locked)");
 }
 
 // ---------- 16x2 I2C LCD on D2 (SDA) / D1 (SCL). Optional: the lock works without it ----------
@@ -219,7 +211,7 @@ const char* mqttWhy(int rc) {
     case 2: return "bad client id";
     case 3: return "broker unavailable";
     case 4: return "BAD USERNAME OR PASSWORD";
-    case 5: return "not authorised (user lacks permission)";
+    case 5: return "NOT AUTHORISED (user not found in broker, or no permission)";
   }
   return "unknown";
 }
@@ -287,11 +279,18 @@ void setup() {
   mqtt.setCallback(onMsg);
 }
 
+void heartbeat() {                                // re-announce state so a missed message never leaves the web page stale
+  static uint32_t beat = 0;
+  if (millis() - beat < 20000) return;
+  beat = millis();
+  mqtt.publish(T_STATUS, relayOn ? "unlocked" : "locked", true);
+}
+
 void loop() {
   static uint32_t wifiDownAt = 0;
   if (WiFi.status() == WL_CONNECTED) {
     wifiDownAt = 0;
-    if (!mqtt.connected()) mqttConnect(); else { mqtt.loop(); flushPending(); }
+    if (!mqtt.connected()) mqttConnect(); else { mqtt.loop(); flushPending(); heartbeat(); }
   } else {
     if (!wifiDownAt) wifiDownAt = millis();
     if (millis() - wifiDownAt > 60000) ESP.restart();   // WiFi stuck for 1 min: reboot (relay boots LOCKED)
