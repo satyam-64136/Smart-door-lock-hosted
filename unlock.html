@@ -84,8 +84,12 @@ function render(){
   document.body.dataset.s=st==='unknown'?'wait':st;      // last known lock state stays on screen while the link reconnects
   document.body.dataset.link=(up||!cfg)?'up':'down';
   $('conn').textContent=!navigator.onLine?'No internet':!cfg?'Not set up':fatal?'Login rejected':!up?(everUp?'Reconnecting':'Connecting'):st==='offline'?'Lock offline':st==='unknown'?'Checking lock':'Connected';
-  $('big').disabled=cfg&&!fatal&&!libFail&&(!up||busy);   // only disabled while connecting or waiting for the lock
-  $('bigT').textContent=!cfg?'Set up first':fatal?'Check settings':libFail?'Retry':!up?(everUp?'Reconnecting':'Connecting'):busy?'Unlocking...':st==='unlocked'?'Unlocked':st==='offline'?'Lock offline - retry':'Unlock';
+  // The button must remain usable when MQTT is disconnected so the user can
+  // retry the connection or open the full settings page. Only hide it while
+  // an unlock request is actively waiting for a reply, or before the MQTT
+  // client has been created.
+  $('big').disabled=busy||(cfg&&!fatal&&!libFail&&!m);
+  $('bigT').textContent=!cfg?'Set up first':fatal?'Check settings':libFail?'Retry':busy?'Unlocking...':!up?(m?'Retry connection':(everUp?'Reconnecting':'Connecting')):st==='unlocked'?'Unlocked':st==='offline'?'Lock offline - retry':'Unlock';
 }
 function sendOpen(){
   m.publish(T.cmd,JSON.stringify({a:'open'}),{qos:0},err=>{if(err){clearPend();busy=false;want=false;say('Could not send. Try again.','err');render()}})}
@@ -102,6 +106,7 @@ function unlock(){
   if(busy)return;
   if(!okCfg(C)||fatal){location.href='index.html';return}
   if(libFail){location.reload();return}
+  if(!m){location.href='index.html';return}
   t0=performance.now();busy=true;tryN=0;say('');
   attempt();render();
 }
@@ -146,7 +151,11 @@ function start(){
       say(ms?'Unlocked in '+ms+' ms':'Unlocked','good');buzz([30,40,30])}
     else if(e.e==='disabled')say('One-tap unlock is turned off in the firmware.','err');
     else say('Unexpected reply from the lock.','err');
-    render()})}
+    render()})
+  // Make the retry action available as soon as the MQTT client exists,
+  // even if the first WebSocket connection cannot be established.
+  render()
+}
 
 render();
 if(!okCfg(C)){st='offline';render();say('Open "Full app and settings" and enter your username and password once.','err')}
