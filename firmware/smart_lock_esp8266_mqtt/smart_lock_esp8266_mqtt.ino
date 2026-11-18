@@ -22,6 +22,8 @@
 const int  RELAY_PIN = D5;               // GPIO14 -> relay IN1
 const bool RELAY_ACTIVE_LOW = true;      // most 4-ch modules are active LOW
 const uint32_t UNLOCK_MS     = 5000;     // how long solenoid stays energised
+const uint32_t OPEN_MS       = 10000;    // one-tap unlock (unlock.html) holds 10 s
+const bool     ALLOW_ONE_TAP = true;     // set false to require the Telegram code always
 const uint32_t OTP_TTL_MS    = 300000;   // OTP valid 5 min
 const uint32_t TG_DELETE_MS  = 45000;    // delete Telegram OTP msg after 45 s
 const uint32_t REQ_COOLDOWN  = 15000;    // min gap between OTP requests
@@ -155,13 +157,17 @@ void handleRequest() {
   flushPending();
 }
 
-void doUnlock() {
+uint32_t unlockMs = UNLOCK_MS;                  // how long the current unlock lasts
+
+void doUnlock(uint32_t ms = UNLOCK_MS) {
+  unlockMs = ms;
   relayWrite(true);
   relayAt = millis();
   otpActive = false; memset(otp, 0, sizeof(otp));
-  if (tgMsgId) tgDelAt = millis() + UNLOCK_MS + 500;   // clean up OTP message after relock
+  if (tgMsgId) tgDelAt = millis() + ms + 500;    // clean up OTP message after relock
   mqtt.publish(T_STATUS, "unlocked", true);
-  evt("{\"e\":\"unlocked\"}");
+  char b[32]; snprintf(b, sizeof(b), "{\"e\":\"unlocked\",\"s\":%u}", (unsigned)(ms / 1000));
+  evt(b);
 }
 
 void doLock() {
@@ -198,6 +204,8 @@ void onMsg(char* topic, byte* p, unsigned int len) {
     checkOtp(d["v"] | "");
   } else if (!strcmp(a, "lock")) {
     doLock();
+  } else if (!strcmp(a, "open")) {                // one-tap unlock, no code
+    if (ALLOW_ONE_TAP) doUnlock(OPEN_MS); else evt("{\"e\":\"disabled\"}");
   }
 }
 
@@ -289,7 +297,7 @@ void loop() {
     if (millis() - wifiDownAt > 60000) ESP.restart();   // WiFi stuck for 1 min: reboot (relay boots LOCKED)
   }
   if (pendingReq) handleRequest();
-  if (relayOn && millis() - relayAt >= UNLOCK_MS) doLock();
+  if (relayOn && millis() - relayAt >= unlockMs) doLock();
   if (lockedOut && millis() - lockoutAt >= LOCKOUT_MS) { lockedOut = false; tries = 0; }
   if (tgMsgId && !relayOn && (int32_t)(millis() - tgDelAt) >= 0) {   // never block during unlock
     tgPost("deleteMessage", String("{\"chat_id\":\"") + TG_CHAT + "\",\"message_id\":" + tgMsgId + "}");
