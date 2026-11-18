@@ -10,7 +10,7 @@
 #include "secrets.h"   // copy secrets.example.h -> secrets.h and edit
 
 const int  RELAY_PIN = D5;               // GPIO14 -> relay module IN (1-channel relay)
-const bool RELAY_ACTIVE_LOW = true;      // true = low-level-trigger module (most 1-ch boards).
+const bool RELAY_ACTIVE_LOW = false;      // true = low-level-trigger module (most 1-ch boards).
                                          // If the relay is ON while the LCD says LOCKED, set false.
 const uint32_t UNLOCK_MS     = 5000;     // how long solenoid stays energised
 const uint32_t OPEN_MS       = 10000;    // one-tap unlock (unlock.html) holds 10 s
